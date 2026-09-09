@@ -111,12 +111,21 @@ app.get("/debug/config", (req: Request, res: Response) => {
   });
 });
 
-// GET /users/:id — IDOR: returns any user object if authenticated (VULN: no ownership check)
+// GET /users/:id — FIXED (was IDOR / CWE-639): only the record owner or an
+// admin may fetch a user by id, and the password hash is never returned.
 app.get("/users/:id", authenticate, (req: Request, res: Response) => {
-  // VULNERABILITY: any authenticated user can enumerate any other user by id
+  const requester = (req as any).user as { sub: string; role: string };
   const user = Object.values(users).find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: "Not found" });
-  res.json(user); // returns passwordHash
+
+  const isSelf = requester.sub === user.id;
+  const isAdmin = requester.role === "admin";
+  if (!isSelf && !isAdmin) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const { passwordHash, ...safeUser } = user;
+  res.json(safeUser);
 });
 
 const PORT = process.env.PORT || 3000;

@@ -47,12 +47,16 @@ app.post("/login", (req: Request, res: Response) => {
   res.json({ token });
 });
 
-// GET /items — paginated list, no upper bound on limit (VULN: DoS via large limit)
+// GET /items — paginated list. FIXED (was unbounded pagination / CWE-400):
+// `limit` is clamped to MAX_PAGE_LIMIT, so a caller can no longer request
+// limit=999999 and force a huge allocation. Non-numeric or out-of-range
+// values fall back to a safe default instead of producing NaN offsets.
+const MAX_PAGE_LIMIT = 100;
 app.get("/items", authenticate, (req: Request, res: Response) => {
-  const page  = parseInt((req.query.page  as string) || "1",  10);
-  const limit = parseInt((req.query.limit as string) || "10", 10);
+  const page = Math.max(1, parseInt((req.query.page as string) || "1", 10) || 1);
+  const requested = parseInt((req.query.limit as string) || "10", 10) || 10;
+  const limit = Math.min(Math.max(1, requested), MAX_PAGE_LIMIT);
   const offset = (page - 1) * limit;
-  // VULNERABILITY: limit is not bounded — caller can request limit=999999 causing huge allocations
   const slice = items.slice(offset, offset + limit);
   res.json({ page, limit, total: items.length, items: slice });
 });
